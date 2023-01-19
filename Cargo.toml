@@ -7,3 +7,7 @@ authors = ["Martin van Harmelen <martin@vanharmelen.com>"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+regex = "1"  # https://docs.rs/regex/latest/regex/struct.Regex.html#method.split
+walkdir = "2"  # https://rust-lang-nursery.github.io/rust-cookbook/file/dir.html
+clap = { version = "4", features = ["derive"] }
+json = "0.12.4"

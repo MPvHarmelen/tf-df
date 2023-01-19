@@ -1,9 +1,10 @@
+use json;
 use regex::Regex;
-use std::collections::HashMap;
 use std::fs::read_to_string;
 use std::io;
 use std::iter::Map;
 use std::path::Path;
+use std::{collections::HashMap, io::Write};
 use walkdir::{DirEntry, WalkDir};
 
 use clap::Parser;
@@ -21,21 +22,28 @@ fn main() -> Result<(), io::Error> {
     let args = Args::parse();
     let path = args.path;
 
-    WalkDir::new(path)
-        .into_iter()
-        .filter_entry(|e| is_not_hidden(e))
-        .filter_map(|v| v.ok())
-        .for_each(|x| println!("{}", x.path().display()));
-
     // If this fails, the code shouldn't compile??
     let splitter = Regex::new(r"\P{Devanagari}+").expect("Illegal regex");
 
-    // let input = File::open(path)?;
-    // let buffered = BufReader::new(input);
+    let term_frequency = WalkDir::new(path)
+        .min_depth(1)
+        .into_iter()
+        .filter_map(|v| v.ok())
+        .filter(|e| (!e.path().is_dir()) && is_not_hidden(e))
+        .map(|x| process_file(x.path(), &splitter))
+        .reduce(|wrapped_left, wrapped_right| {
+            let mut left = wrapped_left?;
+            wrapped_right?.into_iter().for_each(|(k, v)| {
+                left.entry(k)
+                    .and_modify(|counter| *counter += v)
+                    .or_insert(1);
+            });
+            Ok(left)
+        })
+        .expect("No files found")?;
 
-    // for line in buffered.lines() {
-    //     println!("{}", line?);
-    // }
+    let string = json::stringify_pretty(term_frequency, 2);
+    println!("{}", string);
 
     Ok(())
 }
