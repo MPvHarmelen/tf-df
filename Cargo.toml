@@ -11,3 +11,4 @@ regex = "1"  # https://docs.rs/regex/latest/regex/struct.Regex.html#method.split
 walkdir = "2"  # https://rust-lang-nursery.github.io/rust-cookbook/file/dir.html
 clap = { version = "4", features = ["derive"] }
 json = "0.12.4"
+rayon = "1"  # https://rust-lang-nursery.github.io/rust-cookbook/concurrency/parallel.html#map-reduce-in-parallel
