@@ -16,6 +16,10 @@ struct Args {
     /// Directory containing the data files
     #[arg(short, long)]
     path: String,
+
+    /// Minimum term frequency
+    #[arg(short, long, default_value_t = 0)]
+    min_frequency: usize,
 }
 
 fn main() -> Result<(), io::Error> {
@@ -57,19 +61,21 @@ fn main() -> Result<(), io::Error> {
         .expect("No files found");
 
     // drop all words that only occur once
-    term_frequency = term_frequency
-        .into_iter()
-        .filter(|(_, count)| *count > 1)
-        .collect();
+    if args.min_frequency > 0 {
+        term_frequency = term_frequency
+            .into_iter()
+            .filter(|(_, count)| *count > args.min_frequency)
+            .collect();
 
-    document_frequency = document_frequency
-        .into_iter()
-        .filter(|(term, _)| term_frequency.contains_key(term))
-        .collect();
+        document_frequency = document_frequency
+            .into_iter()
+            .filter(|(term, _)| term_frequency.contains_key(term))
+            .collect();
+    }
 
-    print!("{{ \"term-frequency\": ");
+    print!("{{ \"term_frequency\": ");
     print!("{}", json::stringify_pretty(term_frequency, 2));
-    print!(",\n \"document-frequency\": ");
+    print!(",\n \"document_frequency\": ");
     print!("{}", json::stringify_pretty(document_frequency, 2));
     println!("}}");
 
