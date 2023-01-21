@@ -1,10 +1,11 @@
 use rayon::prelude::*;
 use regex::Regex;
 use std::fs::read_to_string;
+use std::hash::BuildHasherDefault;
 use std::io;
 use std::path::Path;
-use std::{collections::HashMap, hash::BuildHasherDefault};
-use walkdir::{DirEntry, WalkDir};
+use string_interner::StringInterner;
+use walkdir::WalkDir;
 
 use clap::Parser;
 
@@ -21,9 +22,9 @@ struct Args {
     min_frequency: usize,
 }
 
-type Counts<A = String> = HashMap<A, usize, BuildHasherDefault<rustc_hash::FxHasher>>;
+type HashMap<A, B> = std::collections::HashMap<A, B, BuildHasherDefault<rustc_hash::FxHasher>>;
 
-fn new_counts<A>() -> Counts<A> {
+fn new_hash_map<A, B>() -> HashMap<A, B> {
     rustc_hash::FxHashMap::default()
 }
 
@@ -34,83 +35,65 @@ fn main() -> Result<(), io::Error> {
     // If this fails, the code shouldn't compile??
     let splitter = Regex::new(r"\P{Devanagari}+").expect("Illegal regex");
 
-    let (mut term_frequency, mut document_frequency) = WalkDir::new(path)
+    // let (words, mut counts) =
+
+    let mut counts = WalkDir::new(path)
         .min_depth(1)
         .into_iter()
-        .map(|x| x.unwrap()) // panic on errors
         .collect::<Vec<_>>() // get all files
         .into_par_iter()
-        .filter(|e| (!e.path().is_dir()) && is_not_hidden(e))
-        .map(|x| process_file(x.path(), &splitter))
-        .reduce(
-            // this is a parallel reduce
-            || Ok((new_counts(), new_counts())),
-            |wrapped_left, wrapped_right| {
-                let (mut left_tf, mut left_df) = wrapped_left?;
-                let (right_tf, right_df) = wrapped_right?;
-                right_tf.into_iter().for_each(|(k, v)| {
-                    left_tf
-                        .entry(k)
-                        .and_modify(|counter| *counter += v)
-                        .or_insert(1);
-                });
-                right_df.into_iter().for_each(|(k, v)| {
-                    left_df
-                        .entry(k)
-                        .and_modify(|counter| *counter += v)
-                        .or_insert(1);
-                });
-                Ok((left_tf, left_df))
+        .map(|x| x.unwrap().into_path()) // panic on errors
+        .filter(|p| (!p.is_dir()))
+        .try_fold(
+            || (StringInterner::new(), new_hash_map()),
+            |(mut words, mut counts), p| {
+                process_file(&p, &splitter, &mut words)?
+                    .into_iter()
+                    .for_each(|(term, count)| {
+                        let (tf, df): &mut (usize, usize) = counts.entry(term).or_default();
+                        *tf += count;
+                        *df += 1;
+                    });
+                Ok::<_, io::Error>((words, counts))
             },
         )
-        .expect("No files found");
+        .map(|fold_result| {
+            let (words, counts) = fold_result.unwrap();
+            counts
+                .into_iter()
+                .map(|(sym, counts)| (words.resolve(sym).unwrap().to_string(), counts))
+                .collect::<HashMap<_, _>>()
+        })
+        .reduce(new_hash_map, |mut left_counts, right_counts| {
+            right_counts.into_iter().for_each(|(token, (tf, df))| {
+                let (left_tf, left_df) = left_counts.entry(token).or_default();
+                *left_tf += tf;
+                *left_df += df;
+            });
+            left_counts
+        });
 
-    // drop all words that only occur once
     if args.min_frequency > 0 {
-        term_frequency.retain(|_, count|*count > args.min_frequency);
-        document_frequency.retain(|term, _| term_frequency.contains_key(term));
+        counts.retain(|_, (tf, _)| *tf > args.min_frequency);
     }
 
-    print!("{{ \"term_frequency\": ");
     print!(
         "{}",
-        serde_json::to_string_pretty(&term_frequency).expect("Serializing json failed")
+        serde_json::to_string_pretty(&counts).expect("Serializing json failed")
     );
-    print!(",\n \"document_frequency\": ");
-    print!(
-        "{}",
-        serde_json::to_string_pretty(&document_frequency).expect("Serializing json failed")
-    );
-    println!("}}");
 
     Ok(())
 }
 
-fn process_file(path: &Path, splitter: &Regex) -> Result<(Counts, Counts), io::Error> {
-    let mut map = new_counts();
+fn process_file(
+    path: &Path,
+    splitter: &Regex,
+    words: &mut StringInterner,
+) -> Result<HashMap<string_interner::DefaultSymbol, usize>, io::Error> {
+    let mut map = new_hash_map();
     let contents = read_to_string(path)?;
-    for token in splitter.split(&contents) {
-        // https://doc.rust-lang.org/std/collections/struct.HashMap.html#method.entry
-        map.entry(token)
-            .and_modify(|counter| *counter += 1)
-            .or_insert(1);
-    }
-    let term_frequency: Counts = map
-        .into_iter()
-        .map(|(key, value)| (key.to_string(), value))
-        .collect();
-    let document_frequency: Counts = term_frequency
-        .keys()
-        .cloned()
-        .map(|token| (token, 1))
-        .collect();
-    Ok((term_frequency, document_frequency))
-}
-
-fn is_not_hidden(entry: &DirEntry) -> bool {
-    entry
-        .file_name()
-        .to_str()
-        .map(|s| entry.depth() == 0 || !s.starts_with("."))
-        .unwrap_or(false)
+    splitter
+        .split(&contents)
+        .for_each(|token| *map.entry(words.get_or_intern(token)).or_default() += 1);
+    Ok(map)
 }
