@@ -62,7 +62,7 @@ fn main() -> Result<(), io::Error> {
             counts
                 .into_iter()
                 .map(|(sym, counts)| (words.resolve(sym).unwrap().to_string(), counts))
-                .collect::<HashMap<_, _>>()
+                .collect()
         })
         .reduce(new_hash_map, |mut left_counts, right_counts| {
             right_counts.into_iter().for_each(|(token, (tf, df))| {
