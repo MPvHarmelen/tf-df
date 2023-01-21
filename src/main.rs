@@ -3,7 +3,6 @@ use regex::Regex;
 use std::fs::read_to_string;
 use std::hash::BuildHasherDefault;
 use std::io;
-use std::path::Path;
 use walkdir::WalkDir;
 
 use clap::Parser;
@@ -31,31 +30,29 @@ fn main() -> Result<(), io::Error> {
     let args = Args::parse();
     let path = args.path;
 
-    // If this fails, the code shouldn't compile??
     let splitter = Regex::new(r"\P{Devanagari}+").expect("Illegal regex");
 
-    // let (words, mut counts) =
-
     let mut counts = WalkDir::new(path)
-        .min_depth(1)
         .into_iter()
         .collect::<Vec<_>>() // get all files
         .into_par_iter()
-        .map(|x| x.unwrap().into_path()) // panic on errors
+        .map(|x| x.unwrap().into_path())
         .filter(|p| (!p.is_dir()))
-        .try_fold(
-            new_hash_map,
-            |mut counts, p| {
-                process_file(&p, &splitter)?
-                    .into_iter()
-                    .for_each(|(term, count)| {
-                        let (tf, df): &mut (usize, usize) = counts.entry(term).or_default();
-                        *tf += count;
-                        *df += 1;
-                    });
-                Ok::<_, io::Error>(counts)
-            },
-        )
+        .try_fold(new_hash_map, |mut counts, path| {
+            let mut map: HashMap<_, usize> = new_hash_map();
+            let contents = read_to_string(path)?;
+
+            splitter
+                .split(&contents)
+                .for_each(|token| *map.entry(token.to_string()).or_default() += 1);
+
+            map.into_iter().for_each(|(term, count)| {
+                let (tf, df): &mut (usize, usize) = counts.entry(term).or_default();
+                *tf += count;
+                *df += 1;
+            });
+            Ok::<_, io::Error>(counts)
+        })
         .try_reduce(new_hash_map, |mut left_counts, right_counts| {
             right_counts.into_iter().for_each(|(token, (tf, df))| {
                 let (left_tf, left_df) = left_counts.entry(token).or_default();
@@ -75,16 +72,4 @@ fn main() -> Result<(), io::Error> {
     );
 
     Ok(())
-}
-
-fn process_file(
-    path: &Path,
-    splitter: &Regex,
-) -> Result<HashMap<String, usize>, io::Error> {
-    let mut map = new_hash_map();
-    let contents = read_to_string(path)?;
-    splitter
-        .split(&contents)
-        .for_each(|token| *map.entry(token.to_string()).or_default() += 1);
-    Ok(map)
 }
