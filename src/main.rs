@@ -1,10 +1,9 @@
-use json;
 use rayon::prelude::*;
 use regex::Regex;
-use std::collections::HashMap;
 use std::fs::read_to_string;
 use std::io;
 use std::path::Path;
+use std::{collections::HashMap, hash::BuildHasherDefault};
 use walkdir::{DirEntry, WalkDir};
 
 use clap::Parser;
@@ -20,6 +19,12 @@ struct Args {
     /// Minimum term frequency
     #[arg(short, long, default_value_t = 0)]
     min_frequency: usize,
+}
+
+type Counts<A = String> = HashMap<A, usize, BuildHasherDefault<rustc_hash::FxHasher>>;
+
+fn new_counts<A>() -> Counts<A> {
+    rustc_hash::FxHashMap::default()
 }
 
 fn main() -> Result<(), io::Error> {
@@ -39,7 +44,7 @@ fn main() -> Result<(), io::Error> {
         .map(|x| process_file(x.path(), &splitter))
         .reduce(
             // this is a parallel reduce
-            || Ok((HashMap::new(), HashMap::new())),
+            || Ok((new_counts(), new_counts())),
             |wrapped_left, wrapped_right| {
                 let (mut left_tf, mut left_df) = wrapped_left?;
                 let (right_tf, right_df) = wrapped_right?;
@@ -62,31 +67,27 @@ fn main() -> Result<(), io::Error> {
 
     // drop all words that only occur once
     if args.min_frequency > 0 {
-        term_frequency = term_frequency
-            .into_iter()
-            .filter(|(_, count)| *count > args.min_frequency)
-            .collect();
-
-        document_frequency = document_frequency
-            .into_iter()
-            .filter(|(term, _)| term_frequency.contains_key(term))
-            .collect();
+        term_frequency.retain(|_, count|*count > args.min_frequency);
+        document_frequency.retain(|term, _| term_frequency.contains_key(term));
     }
 
     print!("{{ \"term_frequency\": ");
-    print!("{}", json::stringify_pretty(term_frequency, 2));
+    print!(
+        "{}",
+        serde_json::to_string_pretty(&term_frequency).expect("Serializing json failed")
+    );
     print!(",\n \"document_frequency\": ");
-    print!("{}", json::stringify_pretty(document_frequency, 2));
+    print!(
+        "{}",
+        serde_json::to_string_pretty(&document_frequency).expect("Serializing json failed")
+    );
     println!("}}");
 
     Ok(())
 }
 
-fn process_file(
-    path: &Path,
-    splitter: &Regex,
-) -> Result<(HashMap<String, usize>, HashMap<String, usize>), io::Error> {
-    let mut map: HashMap<&str, usize> = HashMap::new();
+fn process_file(path: &Path, splitter: &Regex) -> Result<(Counts, Counts), io::Error> {
+    let mut map = new_counts();
     let contents = read_to_string(path)?;
     for token in splitter.split(&contents) {
         // https://doc.rust-lang.org/std/collections/struct.HashMap.html#method.entry
@@ -94,11 +95,11 @@ fn process_file(
             .and_modify(|counter| *counter += 1)
             .or_insert(1);
     }
-    let term_frequency: HashMap<String, usize> = map
+    let term_frequency: Counts = map
         .into_iter()
         .map(|(key, value)| (key.to_string(), value))
         .collect();
-    let document_frequency: HashMap<String, usize> = term_frequency
+    let document_frequency: Counts = term_frequency
         .keys()
         .cloned()
         .map(|token| (token, 1))
