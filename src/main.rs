@@ -4,7 +4,6 @@ use std::fs::read_to_string;
 use std::hash::BuildHasherDefault;
 use std::io;
 use std::path::Path;
-use string_interner::StringInterner;
 use walkdir::WalkDir;
 
 use clap::Parser;
@@ -45,33 +44,26 @@ fn main() -> Result<(), io::Error> {
         .map(|x| x.unwrap().into_path()) // panic on errors
         .filter(|p| (!p.is_dir()))
         .try_fold(
-            || (StringInterner::new(), new_hash_map()),
-            |(mut words, mut counts), p| {
-                process_file(&p, &splitter, &mut words)?
+            new_hash_map,
+            |mut counts, p| {
+                process_file(&p, &splitter)?
                     .into_iter()
                     .for_each(|(term, count)| {
                         let (tf, df): &mut (usize, usize) = counts.entry(term).or_default();
                         *tf += count;
                         *df += 1;
                     });
-                Ok::<_, io::Error>((words, counts))
+                Ok::<_, io::Error>(counts)
             },
         )
-        .map(|fold_result| {
-            let (words, counts) = fold_result.unwrap();
-            counts
-                .into_iter()
-                .map(|(sym, counts)| (words.resolve(sym).unwrap().to_string(), counts))
-                .collect()
-        })
-        .reduce(new_hash_map, |mut left_counts, right_counts| {
+        .try_reduce(new_hash_map, |mut left_counts, right_counts| {
             right_counts.into_iter().for_each(|(token, (tf, df))| {
                 let (left_tf, left_df) = left_counts.entry(token).or_default();
                 *left_tf += tf;
                 *left_df += df;
             });
-            left_counts
-        });
+            Ok(left_counts)
+        })?;
 
     if args.min_frequency > 0 {
         counts.retain(|_, (tf, _)| *tf > args.min_frequency);
@@ -88,12 +80,11 @@ fn main() -> Result<(), io::Error> {
 fn process_file(
     path: &Path,
     splitter: &Regex,
-    words: &mut StringInterner,
-) -> Result<HashMap<string_interner::DefaultSymbol, usize>, io::Error> {
+) -> Result<HashMap<String, usize>, io::Error> {
     let mut map = new_hash_map();
     let contents = read_to_string(path)?;
     splitter
         .split(&contents)
-        .for_each(|token| *map.entry(words.get_or_intern(token)).or_default() += 1);
+        .for_each(|token| *map.entry(token.to_string()).or_default() += 1);
     Ok(map)
 }

@@ -13,4 +13,3 @@ clap = { version = "4", features = ["derive"] }
 rayon = "1"  # https://rust-lang-nursery.github.io/rust-cookbook/concurrency/parallel.html#map-reduce-in-parallel
 rustc-hash = "1.1.0"
 serde_json = "1.0.91"
-string-interner = "0.14.0"
