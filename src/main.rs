@@ -8,9 +8,14 @@ use walkdir::WalkDir;
 
 #[derive(Deserialize)]
 struct Document {
-    newsId: String,
-    newsSource: String,
-    newsText: String,
+    // #[serde(rename="newsId")]
+    // id: String,
+
+    // #[serde(rename="newsSource")]
+    // source: String,
+
+    #[serde(rename="newsText")]
+    text: String,
 }
 
 /// Calculate term frequency and document frequency of a bunch of Devanagari text files
@@ -48,7 +53,7 @@ fn main() -> Result<(), io::Error> {
                 counts = serde_json::from_str::<Vec<Document>>(&contents)
                     .unwrap()
                     .into_iter()
-                    .fold(counts, |counts, doc| folder(counts, doc.newsText))
+                    .fold(counts, |counts, doc| folder(counts, doc.text))
             } else {
                 counts = folder(counts, contents)
             }
