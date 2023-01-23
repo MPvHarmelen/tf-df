@@ -25,10 +25,6 @@ struct Args {
     /// Directory containing the data files
     #[arg(short, long)]
     path: String,
-
-    /// Minimum term frequency
-    #[arg(short, long, default_value_t = 0)]
-    min_frequency: usize,
 }
 
 type HashMap<A, B> = std::collections::HashMap<A, B, BuildHasherDefault<rustc_hash::FxHasher>>;
@@ -41,7 +37,7 @@ fn main() -> Result<(), io::Error> {
     let args = Args::parse();
     let path = args.path;
 
-    let mut counts = WalkDir::new(path)
+    let counts = WalkDir::new(path)
         .into_iter()
         .collect::<Vec<_>>() // get all files
         .into_par_iter()
@@ -67,10 +63,6 @@ fn main() -> Result<(), io::Error> {
             });
             Ok(left_counts)
         })?;
-
-    if args.min_frequency > 0 {
-        counts.retain(|_, (tf, _)| *tf > args.min_frequency);
-    }
 
     print!(
         "{}",
