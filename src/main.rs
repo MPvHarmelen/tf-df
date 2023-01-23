@@ -1,10 +1,17 @@
+use clap::Parser;
 use rayon::prelude::*;
+use serde::Deserialize;
 use std::fs::read_to_string;
 use std::hash::BuildHasherDefault;
 use std::io;
 use walkdir::WalkDir;
 
-use clap::Parser;
+#[derive(Deserialize)]
+struct Document {
+    newsId: String,
+    newsSource: String,
+    newsText: String,
+}
 
 /// Calculate term frequency and document frequency of a bunch of Devanagari text files
 #[derive(Parser, Debug)]
@@ -37,36 +44,15 @@ fn main() -> Result<(), io::Error> {
         .map(|x| x.unwrap().into_path())
         .filter(|p| (!p.is_dir()))
         .try_fold(new_hash_map(), |mut counts, path| {
-            let mut map: HashMap<_, usize> = new_hash_map();
-            let contents = read_to_string(path)?;
-
-            let last_word = contents.chars().fold(String::new(), |mut partial, ch| {
-                // If the character is inside the Devanagari range, we want
-                // to push it onto the current string.
-                // https://unicode-table.com/en/blocks/devanagari/
-                if ch >= '\u{0900}' && ch <= '\u{097F}' {
-                    partial.push(ch);
-                    partial
-                } else if partial.len() > 0 {
-                    // otherwise, we want to save the string (if it isn't empty)
-                    *map.entry(partial).or_default() += 1;
-                    String::new()
-                } else {
-                    // otherwise just keep this empty string for the next
-                    // character
-                    partial
-                }
-            });
-
-            if last_word.len() > 0 {
-                *map.entry(last_word).or_default() += 1;
+            let contents = read_to_string(&path)?;
+            if path.ends_with(".json") {
+                counts = serde_json::from_str::<Vec<Document>>(&contents)
+                    .unwrap()
+                    .into_iter()
+                    .fold(counts, |counts, doc| folder(counts, doc.newsText))
+            } else {
+                counts = folder(counts, contents)
             }
-
-            map.into_iter().for_each(|(term, count)| {
-                let (tf, df): &mut (usize, usize) = counts.entry(term).or_default();
-                *tf += count;
-                *df += 1;
-            });
             Ok::<_, io::Error>(counts)
         // })
         // .try_reduce(new_hash_map, |mut left_counts, right_counts| {
@@ -88,4 +74,39 @@ fn main() -> Result<(), io::Error> {
     );
 
     Ok(())
+}
+
+fn folder(
+    mut counts: HashMap<String, (usize, usize)>,
+    contents: String,
+) -> HashMap<String, (usize, usize)> {
+    let mut map: HashMap<_, usize> = new_hash_map();
+    let last_word = contents.chars().fold(String::new(), |mut partial, ch| {
+        // If the character is inside the Devanagari range, we want
+        // to push it onto the current string.
+        // https://unicode-table.com/en/blocks/devanagari/
+        if ch >= '\u{0900}' && ch <= '\u{097F}' {
+            partial.push(ch);
+            partial
+        } else if partial.len() > 0 {
+            // otherwise, we want to save the string (if it isn't empty)
+            *map.entry(partial).or_default() += 1;
+            String::new()
+        } else {
+            // otherwise just keep this empty string for the next
+            // character
+            partial
+        }
+    });
+
+    if last_word.len() > 0 {
+        *map.entry(last_word).or_default() += 1;
+    }
+
+    map.into_iter().for_each(|(term, count)| {
+        let (tf, df): &mut (usize, usize) = counts.entry(term).or_default();
+        *tf += count;
+        *df += 1;
+    });
+    counts
 }
