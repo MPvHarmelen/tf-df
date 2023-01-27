@@ -1,13 +1,12 @@
-#![feature(result_flattening)]
-
 use clap::Parser;
 use flate2::read::GzDecoder;
 use rayon::prelude::*;
 use serde::Deserialize;
 use std::fs::{self, File};
 use std::hash::BuildHasherDefault;
-use std::io::{self, Read};
-use tar::{Archive, Entries};
+use std::io;
+use std::thread;
+use tar::Archive;
 use walkdir::WalkDir;
 
 #[derive(Deserialize)]
@@ -36,41 +35,51 @@ fn new_hash_map<A, B>() -> HashMap<A, B> {
     rustc_hash::FxHashMap::default()
 }
 
-struct EntriesContentIterator<'r, R: Read> {
-    entries: Entries<'r, R>,
-}
-
-impl<'r, R: Read> Iterator for EntriesContentIterator<'r, R> {
-    type Item = Result<String, io::Error>;
-    fn next(&mut self) -> Option<Self::Item> {
-        Some(
-            self.entries
-                .next()?
-                .map(|entry| io::read_to_string(entry))
-                .flatten(),
-        )
-    }
-}
-
-impl<'r, R: Read> From<Entries<'r, R>> for EntriesContentIterator<'r, R> {
-    fn from(entries: Entries<'r, R>) -> Self {
-        EntriesContentIterator { entries }
-    }
-}
-
 fn main() -> Result<(), io::Error> {
     let args = Args::parse();
     let path = args.path;
     let counts;
+    // Make one thread fewer because we already have the unpacking thread
+    let num_threads = num_cpus::get() - 1;
 
     if path.ends_with(".tgz") {
-        let mut archive = Archive::new(GzDecoder::new(File::open(path)?));
-        let iterator: EntriesContentIterator<_> = archive.entries()?.into();
-        counts = iterator
-            .par_bridge()
-            .try_fold(new_hash_map(), |counts, content| {
-                Ok::<_, io::Error>(folder(counts, content?))
-            })?;
+        let (mut tx, rx) = spmc::channel();
+        let unpack_thread = thread::spawn(move || {
+            for entry in Archive::new(GzDecoder::new(File::open(path)?)).entries()? {
+                tx.send(Some(io::read_to_string(entry?)?)).unwrap();
+            }
+            { 0..num_threads }.for_each(|_ignored| tx.send(None).unwrap());
+            Ok::<_, io::Error>(())
+        });
+        let threads: Vec<_> = { 0..num_threads }
+            .map(|_i| {
+                let receiver = rx.clone();
+                thread::spawn(move || {
+                    let mut counts = new_hash_map();
+                    loop {
+                        match receiver.recv().unwrap() {
+                            None => return counts,
+                            Some(contents) => counts = folder(counts, contents),
+                        }
+                    }
+                })
+            })
+            .collect();
+        unpack_thread.join().unwrap()?;
+        counts = threads
+            .into_iter()
+            .fold(new_hash_map(), |mut left_counts, thread| {
+                thread
+                    .join()
+                    .unwrap()
+                    .into_iter()
+                    .for_each(|(token, (tf, df))| {
+                        let (left_tf, left_df) = left_counts.entry(token).or_default();
+                        *left_tf += tf;
+                        *left_df += df;
+                    });
+                left_counts
+            });
     } else {
         counts = WalkDir::new(path)
             .into_iter()
