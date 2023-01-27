@@ -1,7 +1,7 @@
+#![feature(result_flattening)]
+
 use clap::Parser;
 use flate2::read::GzDecoder;
-use futures_core::stream::Stream;
-use futures_core::task::Poll::{self, Pending, Ready};
 use rayon::prelude::*;
 use serde::Deserialize;
 use std::fs::{self, File};
@@ -36,39 +36,25 @@ fn new_hash_map<A, B>() -> HashMap<A, B> {
     rustc_hash::FxHashMap::default()
 }
 
-struct EntriesStream<'r, R: Read> {
+struct EntriesContentIterator<'r, R: Read> {
     entries: Entries<'r, R>,
-    // buffer: Vec<String>,
-    // max_buffer_size: usize,
 }
 
-impl<'r, R: Read> Stream for EntriesStream<'r, R> {
-    type Item = String;
-    fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
-        _cx: &mut std::task::Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
-        match self.entries.next() {
-            None => Ready(None),
-            Some(Err(error)) => panic!("Error while reading next entry of archive: {}", error),
-            Some(Ok(entry)) => match io::read_to_string(entry) {
-                Ok(contents) => Ready(Some(contents)),
-                Err(error) => panic!("Error while reading entry to string: {}", error),
-            },
-        }
+impl<'r, R: Read> Iterator for EntriesContentIterator<'r, R> {
+    type Item = Result<String, io::Error>;
+    fn next(&mut self) -> Option<Self::Item> {
+        Some(
+            self.entries
+                .next()?
+                .map(|entry| io::read_to_string(entry))
+                .flatten(),
+        )
     }
 }
 
-impl<'r, R: Read> From<Entries<'r, R>> for EntriesStream<'r, R> {
+impl<'r, R: Read> From<Entries<'r, R>> for EntriesContentIterator<'r, R> {
     fn from(entries: Entries<'r, R>) -> Self {
-        EntriesStream { entries }
-    }
-}
-
-impl<'r, R: Read> TryFrom<&'r mut Archive<R>> for EntriesStream<'r, R> {
-    type Error = io::Error;
-    fn try_from(archive: &'r mut Archive<R>) -> Result<Self, Self::Error> {
-        Ok(archive.entries()?.into())
+        EntriesContentIterator { entries }
     }
 }
 
@@ -79,10 +65,9 @@ fn main() -> Result<(), io::Error> {
 
     if path.ends_with(".tgz") {
         let mut archive = Archive::new(GzDecoder::new(File::open(path)?));
-        counts = archive
-            .entries()?
-            .into_iter()
-            .map(|e| io::read_to_string(e?))
+        let iterator: EntriesContentIterator<_> = archive.entries()?.into();
+        counts = iterator
+            .par_bridge()
             .try_fold(new_hash_map(), |counts, content| {
                 Ok::<_, io::Error>(folder(counts, content?))
             })?;
