@@ -1,11 +1,13 @@
 use clap::Parser;
 use flate2::read::GzDecoder;
+use futures_core::stream::Stream;
+use futures_core::task::Poll::{self, Pending, Ready};
 use rayon::prelude::*;
 use serde::Deserialize;
 use std::fs::{self, File};
 use std::hash::BuildHasherDefault;
-use std::io;
-use tar::Archive;
+use std::io::{self, Read};
+use tar::{Archive, Entries};
 use walkdir::WalkDir;
 
 #[derive(Deserialize)]
@@ -32,6 +34,42 @@ type HashMap<A, B> = std::collections::HashMap<A, B, BuildHasherDefault<rustc_ha
 
 fn new_hash_map<A, B>() -> HashMap<A, B> {
     rustc_hash::FxHashMap::default()
+}
+
+struct EntriesStream<'r, R: Read> {
+    entries: Entries<'r, R>,
+    // buffer: Vec<String>,
+    // max_buffer_size: usize,
+}
+
+impl<'r, R: Read> Stream for EntriesStream<'r, R> {
+    type Item = String;
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        match self.entries.next() {
+            None => Ready(None),
+            Some(Err(error)) => panic!("Error while reading next entry of archive: {}", error),
+            Some(Ok(entry)) => match io::read_to_string(entry) {
+                Ok(contents) => Ready(Some(contents)),
+                Err(error) => panic!("Error while reading entry to string: {}", error),
+            },
+        }
+    }
+}
+
+impl<'r, R: Read> From<Entries<'r, R>> for EntriesStream<'r, R> {
+    fn from(entries: Entries<'r, R>) -> Self {
+        EntriesStream { entries }
+    }
+}
+
+impl<'r, R: Read> TryFrom<&'r mut Archive<R>> for EntriesStream<'r, R> {
+    type Error = io::Error;
+    fn try_from(archive: &'r mut Archive<R>) -> Result<Self, Self::Error> {
+        Ok(archive.entries()?.into())
+    }
 }
 
 fn main() -> Result<(), io::Error> {
