@@ -39,10 +39,11 @@ fn main() -> Result<(), io::Error> {
     let args = Args::parse();
     let path = args.path;
     let counts;
-    // Make one thread fewer because we already have the unpacking thread
-    let num_threads = num_cpus::get() - 1;
 
     if path.ends_with(".tgz") {
+        // Make one thread fewer because we already have the unpacking thread
+        let num_threads = num_cpus::get() - 1;
+
         let (mut tx, rx) = spmc::channel();
         let unpack_thread = thread::spawn(move || {
             for entry in Archive::new(GzDecoder::new(File::open(path)?)).entries()? {
