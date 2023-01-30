@@ -73,7 +73,7 @@ pub struct Document {
 pub fn simplify_source<S: AsRef<str>>(sourceref: &S) -> String {
     let mut source = sourceref.as_ref();
     source = source.strip_suffix('/').unwrap_or(source);
-    let mut parts = source
+    let parts = source
         .strip_prefix("http://")
         .unwrap_or_else(|| source.strip_prefix("https://").unwrap_or(source))
         .split('.')

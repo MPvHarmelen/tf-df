@@ -21,13 +21,21 @@ struct Args {
     source_counts: String,
 
     /// The minimum number of times a source must be present in the data to use documents from it
-    #[arg(short, long, default_value_t = 0)]
+    #[arg(long, default_value_t = 0)]
     min_src_freq: usize,
+
+    /// The minimum number of times a type must be present in the data to be considered correct
+    #[arg(long, default_value_t = 0)]
+    min_tf: usize,
+
+    /// The minimum number of documents a type must appear in to be considered correct
+    #[arg(long, default_value_t = 0)]
+    min_df: usize,
 }
 
 fn main() -> Result<(), io::Error> {
     let args = Args::parse();
-    let sources: HashSet<String> = serde_json::from_str::<Vec<(String, usize)>>(
+    let sources: HashSet<String> = serde_json::from_str::<HashMap<String, usize>>(
         fs::read_to_string(args.source_counts)?.as_str(),
     )?
     .into_iter()
@@ -40,7 +48,7 @@ fn main() -> Result<(), io::Error> {
     })
     .collect();
 
-    let word_counts = WalkDir::new(args.path)
+    let mut word_counts = WalkDir::new(args.path)
         .into_iter()
         .collect::<Vec<_>>() // get all files
         .into_par_iter()
@@ -51,7 +59,12 @@ fn main() -> Result<(), io::Error> {
             counts = serde_json::from_str::<Vec<Document>>(&contents)
                 .unwrap()
                 .into_iter()
-                .filter(|d| sources.contains(simplify_source(&d.source).as_str()))
+                .filter(|d| {
+                    // I don't know whether the passed sources have been simplified,
+                    // so let's just check both 🤷
+                    sources.contains(&d.source)
+                        || sources.contains(simplify_source(&d.source).as_str())
+                })
                 .fold(counts, |counts, doc| folder(counts, doc.text));
             Ok::<_, io::Error>(counts)
         })
@@ -59,6 +72,9 @@ fn main() -> Result<(), io::Error> {
             Ok(add_counts(left_counts, right_counts))
         })?;
 
+    if args.min_tf > 0 || args.min_df > 0 {
+        word_counts.retain(|_, (tf, df)| *tf >= args.min_tf && *df >= args.min_df)
+    }
     print!(
         "{}",
         serde_json::to_string_pretty(&word_counts).expect("Serializing json failed")
@@ -66,4 +82,3 @@ fn main() -> Result<(), io::Error> {
 
     Ok(())
 }
-
