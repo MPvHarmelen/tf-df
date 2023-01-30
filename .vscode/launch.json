@@ -1,0 +1,156 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'tf-df-filtered-sources'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=tf-df-filtered-sources",
+                    "--package=tf-df"
+                ],
+                "filter": {
+                    "name": "tf-df-filtered-sources",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'tf-df-filtered-sources'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=tf-df-filtered-sources",
+                    "--package=tf-df"
+                ],
+                "filter": {
+                    "name": "tf-df-filtered-sources",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'explode-and-filter'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=explode-and-filter",
+                    "--package=tf-df"
+                ],
+                "filter": {
+                    "name": "explode-and-filter",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'explode-and-filter'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=explode-and-filter",
+                    "--package=tf-df"
+                ],
+                "filter": {
+                    "name": "explode-and-filter",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'simplify-source-counts'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=simplify-source-counts",
+                    "--package=tf-df"
+                ],
+                "filter": {
+                    "name": "simplify-source-counts",
+                    "kind": "bin"
+                }
+            },
+            "args": ["-s", "/home/personal/Data/NepaliNewsData-json/source_news_count.json"],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'simplify-source-counts'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=simplify-source-counts",
+                    "--package=tf-df"
+                ],
+                "filter": {
+                    "name": "simplify-source-counts",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'tf-df'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=tf-df",
+                    "--package=tf-df"
+                ],
+                "filter": {
+                    "name": "tf-df",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'tf-df'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=tf-df",
+                    "--package=tf-df"
+                ],
+                "filter": {
+                    "name": "tf-df",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}

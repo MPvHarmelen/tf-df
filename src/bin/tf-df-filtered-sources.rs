@@ -1,21 +1,12 @@
 use clap::Parser;
 use rayon::prelude::*;
-use serde::Deserialize;
 use std::fs;
-use std::hash::BuildHasherDefault;
 use std::io;
 use walkdir::WalkDir;
 
-#[derive(Deserialize)]
-struct Document {
-    // #[serde(rename="newsId")]
-    // id: String,
-    #[serde(rename = "newsSource")]
-    source: String,
-
-    #[serde(rename = "newsText")]
-    text: String,
-}
+#[path = "../shared.rs"]
+mod shared;
+use shared::*;
 
 /// Calculate term frequency and document frequency of a bunch of Devanagari text files
 #[derive(Parser, Debug)]
@@ -34,27 +25,21 @@ struct Args {
     min_src_freq: usize,
 }
 
-type HashMap<A, B> = std::collections::HashMap<A, B, BuildHasherDefault<rustc_hash::FxHasher>>;
-type HashSet<A> = std::collections::HashSet<A, BuildHasherDefault<rustc_hash::FxHasher>>;
-
-fn new_hash_map<A, B>() -> HashMap<A, B> {
-    rustc_hash::FxHashMap::default()
-}
-
 fn main() -> Result<(), io::Error> {
     let args = Args::parse();
-    let sources: HashSet<String> = serde_json::from_str::<HashMap<_, usize>>(
+    let sources: HashSet<String> = serde_json::from_str::<Vec<(String, usize)>>(
         fs::read_to_string(args.source_counts)?.as_str(),
     )?
     .into_iter()
     .filter_map(|(source, count)| {
-        if count > args.min_src_freq {
+        if count >= args.min_src_freq {
             Some(source)
         } else {
             None
         }
     })
     .collect();
+
     let word_counts = WalkDir::new(args.path)
         .into_iter()
         .collect::<Vec<_>>() // get all files
@@ -66,17 +51,12 @@ fn main() -> Result<(), io::Error> {
             counts = serde_json::from_str::<Vec<Document>>(&contents)
                 .unwrap()
                 .into_iter()
-                .filter(|d| sources.contains(d.source.as_str()))
+                .filter(|d| sources.contains(simplify_source(&d.source).as_str()))
                 .fold(counts, |counts, doc| folder(counts, doc.text));
             Ok::<_, io::Error>(counts)
         })
-        .try_reduce(new_hash_map, |mut left_counts, right_counts| {
-            right_counts.into_iter().for_each(|(token, (tf, df))| {
-                let (left_tf, left_df) = left_counts.entry(token).or_default();
-                *left_tf += tf;
-                *left_df += df;
-            });
-            Ok(left_counts)
+        .try_reduce(new_hash_map, |left_counts, right_counts| {
+            Ok(add_counts(left_counts, right_counts))
         })?;
 
     print!(
@@ -87,37 +67,3 @@ fn main() -> Result<(), io::Error> {
     Ok(())
 }
 
-fn folder(
-    mut counts: HashMap<String, (usize, usize)>,
-    contents: String,
-) -> HashMap<String, (usize, usize)> {
-    let mut map: HashMap<_, usize> = new_hash_map();
-    let last_word = contents.chars().fold(String::new(), |mut partial, ch| {
-        // If the character is inside the Devanagari range, we want
-        // to push it onto the current string.
-        // https://unicode-table.com/en/blocks/devanagari/
-        if ch >= '\u{0900}' && ch <= '\u{097F}' {
-            partial.push(ch);
-            partial
-        } else if partial.len() > 0 {
-            // otherwise, we want to save the string (if it isn't empty)
-            *map.entry(partial).or_default() += 1;
-            String::new()
-        } else {
-            // otherwise just keep this empty string for the next
-            // character
-            partial
-        }
-    });
-
-    if last_word.len() > 0 {
-        *map.entry(last_word).or_default() += 1;
-    }
-
-    map.into_iter().for_each(|(term, count)| {
-        let (tf, df): &mut (usize, usize) = counts.entry(term).or_default();
-        *tf += count;
-        *df += 1;
-    });
-    counts
-}
